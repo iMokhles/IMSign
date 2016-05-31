@@ -16,7 +16,7 @@ Resign App
 ----------
 
 <p align="center">
-  <img width="640" src="Screen1.png"/>
+  <img width="640" src="screenshots/Screen1.png"/>
 </p>
 
 * choose your developer certificate from certificates list
@@ -32,7 +32,7 @@ Tweaking App
 ------------
 
 <p align="center">
-  <img width="640" src="Screen3.png"/>
+  <img width="640" src="screenshots/Screen3.png"/>
 </p>
 
 * choose your developer certificate from certificates list
