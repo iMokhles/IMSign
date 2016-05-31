@@ -442,6 +442,10 @@
                 }];
                 
             }
+        } else if (!isTweaked && allDylibs.count == 0) {
+            [self updateProgress:53];
+            // sign all plugins
+            [self signAllAppPlugins];
         }
     }];
 }
