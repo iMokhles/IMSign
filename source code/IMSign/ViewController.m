@@ -477,6 +477,10 @@
                 
             }];
         }
+    } else {
+        [self updateProgress:60];
+        // sign all plugins
+        [self signTheMainAppNow];
     }
 }
 
