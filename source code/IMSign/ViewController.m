@@ -133,8 +133,14 @@
     
     [self excuteCommandWithLaunchPath:@"/usr/bin/unzip" andArguments:@[@"-oqq", _ipaFileField.stringValue, @"-d", [self extractedPath]] andCompleteBlock:^(BOOL exited) {
         if (exited) {
+            [self deleteFileAtPath:[self appCodeSignaturePath]];
             [self checkIfTheAppAlreadyTweakedWithBlock:^(BOOL isTweaked, NSArray *allDylibs) {
                 if (isTweaked && allDylibs.count > 0) {
+//                    if (isTweak) {
+//                        [self startAlreadyTweakedProcess];
+//                    } else {
+//                        [self startNotTweakedProcess];
+//                    }
                     [self startAlreadyTweakedProcess];
                 } else if (!isTweaked && allDylibs.count == 0) {
                     [self startNotTweakedProcess];
@@ -154,7 +160,12 @@
 #pragma mark - App Tweaked Already
 - (void)startAlreadyTweakedProcess {
     isAppAlreadyTweaked = YES;
-    [self showAlertWithMessage:@"We don't support tweaking already tweaked app ( for now )"];
+    if (isTweak) {
+        [self showAlertWithMessage:@"We don't support tweaking already tweaked app ( for now )"];
+    } else {
+        [self startJustResignProcess];
+    }
+    
 }
 
 /************
@@ -260,6 +271,21 @@
 - (void)configureAppInfoPlistFile {
     [self updateProgress:33];
     if (!isAppAlreadyTweaked) {
+        [self excuteCommandWithLaunchPath:@"/usr/libexec/PlistBuddy" andArguments:@[@"-c", [NSString stringWithFormat:@"Set :CFBundleDisplayName %@", _appNameField.stringValue], [[self extractedAppBundlePath] stringByAppendingPathComponent:@"Info.plist"]] andCompleteBlock:^(BOOL exited) {
+            if (exited) {
+                [self excuteCommandWithLaunchPath:@"/usr/libexec/PlistBuddy" andArguments:@[@"-c", [NSString stringWithFormat:@"Set :CFBundleIdentifier %@", _appIDField.stringValue], [[self extractedAppBundlePath] stringByAppendingPathComponent:@"Info.plist"]] andCompleteBlock:^(BOOL exited) {
+                    if (exited) {
+                        if (isTweak) {
+                            [self checkTweakAndLoadThemCorrectly];
+                        } else {
+                            [self startEntitlementsProcess];
+                        }
+                        
+                    }
+                }];
+            }
+        }];
+    } else {
         [self excuteCommandWithLaunchPath:@"/usr/libexec/PlistBuddy" andArguments:@[@"-c", [NSString stringWithFormat:@"Set :CFBundleDisplayName %@", _appNameField.stringValue], [[self extractedAppBundlePath] stringByAppendingPathComponent:@"Info.plist"]] andCompleteBlock:^(BOOL exited) {
             if (exited) {
                 [self excuteCommandWithLaunchPath:@"/usr/libexec/PlistBuddy" andArguments:@[@"-c", [NSString stringWithFormat:@"Set :CFBundleIdentifier %@", _appIDField.stringValue], [[self extractedAppBundlePath] stringByAppendingPathComponent:@"Info.plist"]] andCompleteBlock:^(BOOL exited) {
@@ -414,12 +440,8 @@
                 NSString *entitlementsCommand = [NSString stringWithFormat:@"/usr/libexec/PlistBuddy -c \"Print Entitlements\" \"%@\" -x > \"%@\"", [self entitlementsTempPlist], [self appEntitlementsFile]];
                 system([entitlementsCommand UTF8String]);
                 [self updateProgress:47];
-                double delayInSeconds = 1.5;
-                dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
-                dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
-                    // start siging all dylibs process
-                    [self startSignAllDylibProcess];
-                });
+                // start siging all dylibs process
+                [self startSignAllDylibProcess];
                 
             });
         }
@@ -434,7 +456,12 @@
                 if (index == [allDylibs count]-1) {
                     [self updateProgress:53];
                     // sign all plugins
-                    [self signAllAppPlugins];
+                    double delayInSeconds = 1.5;
+                    dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+                    dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+                        // exited
+                        [self signAllAppPlugins];
+                    });
                 }
                 NSString *dylibFullPath = [[self extractedAppBundlePath] stringByAppendingPathComponent:[allDylibs objectAtIndex:index]];
                 [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, dylibFullPath] andCompleteBlock:^(BOOL exited) {
@@ -445,7 +472,13 @@
         } else if (!isTweaked && allDylibs.count == 0) {
             [self updateProgress:53];
             // sign all plugins
-            [self signAllAppPlugins];
+            double delayInSeconds = 1.5;
+            dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+            dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+                // exited
+                [self signAllAppPlugins];
+            });
+            
         }
     }];
 }
@@ -455,10 +488,21 @@
         [self updateProgress:57];
         // remove it for now
         [self deleteFileAtPath:[self appPluginPath]];
-        [self signAllAppFrameworks];
+        double delayInSeconds = 1.5;
+        dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+        dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+            // exited
+            [self signAllAppFrameworks];
+        });
     } else {
         [self updateProgress:57];
-        [self signAllAppFrameworks];
+        double delayInSeconds = 1.5;
+        dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+        dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+            // exited
+            [self signAllAppFrameworks];
+        });
+        
     }
 }
 
@@ -470,7 +514,12 @@
             if (index == [frameworksContents count]-1) {
                 [self updateProgress:60];
                 // sign all plugins
-                [self signTheMainAppNow];
+                double delayInSeconds = 1.5;
+                dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+                dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+                    // exited
+                    [self signTheMainAppNow];
+                });
             }
             NSString *frameworkFullPath = [[self extractedAppBundlePath] stringByAppendingPathComponent:[frameworksContents objectAtIndex:index]];
             [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, frameworkFullPath] andCompleteBlock:^(BOOL exited) {
@@ -480,7 +529,13 @@
     } else {
         [self updateProgress:60];
         // sign all plugins
-        [self signTheMainAppNow];
+        double delayInSeconds = 1.5;
+        dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+        dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+            // exited
+            [self signTheMainAppNow];
+        });
+        
     }
 }
 
@@ -491,7 +546,7 @@
     NSString *appBinary = [[self extractedAppBundlePath] stringByAppendingPathComponent:[self appInfoPlistDictionary][@"CFBundleExecutable"]];
     [self excuteCommandWithLaunchPath:@"/bin/cp" andArguments:@[[NSString stringWithFormat:@"%@", _appProfileField.stringValue], [NSString stringWithFormat:@"%@/embedded.mobileprovision", [self extractedAppBundlePath]]] andCompleteBlock:^(BOOL exited) {
         if (exited) {
-            [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, @"--entitlements", [self appEntitlementsFile], @"--timestamp=none", appBinary] andCompleteBlock:^(BOOL exited) {
+            [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, @"--entitlements", [self appEntitlementsFile], @"--timestamp=none", [self extractedAppBundlePath]] andCompleteBlock:^(BOOL exited) {
                 if (exited) {
                     // create ipa
                     [self updateProgress:97];
@@ -731,6 +786,10 @@
 
 - (NSString *)appFrameworksPath {
     return [[self extractedAppBundlePath] stringByAppendingPathComponent:@"Frameworks"];
+}
+
+- (NSString *)appCodeSignaturePath {
+    return [[self extractedAppBundlePath] stringByAppendingPathComponent:@"_CodeSignature"];
 }
 
 - (NSDictionary *)appInfoPlistDictionary {
