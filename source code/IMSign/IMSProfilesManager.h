@@ -9,5 +9,5 @@
 #import <Foundation/Foundation.h>
 
 @interface IMSProfilesManager : NSObject
-+ (void)getAllProfiles;
++(NSDictionary*)getMobileProvisionbyPath:(NSString *)path;
 @end

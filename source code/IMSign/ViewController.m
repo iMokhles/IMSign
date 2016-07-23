@@ -12,10 +12,12 @@
 #include <spawn.h>
 #import "GCDTask.h"
 #import "DJProgressHUD.h"
+#import "IMSProfilesManager.h"
 
 @interface ViewController () {
     
     NSArray *certsArray;
+    NSArray *profilesArray;
     
     NSString *appName;
     NSString *appID;
@@ -31,6 +33,8 @@
     
     BOOL isAppAlreadyTweaked;
 }
+@property (strong) IBOutlet NSTextField *loadingLabel;
+@property (strong) IBOutlet NSTableView *profilesTableView;
 @property (strong) IBOutlet NSTextField *appNameField;
 @property (strong) IBOutlet NSTextField *appIDField;
 @property (strong) IBOutlet NSTextField *appProfileField;
@@ -61,11 +65,17 @@
     _ipadButton.state = NSOffState;
     _tweakButton.state = NSOffState;
     _dylibButton.state = NSOffState;
+    self.loadingLabel.stringValue = @"";
     
     certsArray = [self getCertifications];
+    profilesArray = [self getProfiles];
     if (certsArray.count > 0) {
         [_mainTableView reloadData];
     }
+    if (profilesArray.count > 0) {
+        [_profilesTableView reloadData];
+    }
+    
     [self cleanAppMainPath];
     [self excuteCommandWithLaunchPath:@"/bin/cp" andArguments:@[[self insertDylibPathInBundle], [self insertDylibPath]] andCompleteBlock:^(BOOL exited) {
         if (exited) {
@@ -97,6 +107,7 @@
     } else if ([url.path.pathExtension isEqualToString:@"mobileprovision"]) {
         appProfile = url.path;
         _appProfileField.stringValue = url.path;
+        [self configureAppInfoFieldsFromProfile];
     } else {
         NSNumber *isDirectory;
         BOOL success = [url getResourceValue:&isDirectory forKey:NSURLIsDirectoryKey error:nil];
@@ -126,6 +137,7 @@
 }
 
 - (void)startProcesses {
+    self.loadingLabel.stringValue = @"Preparing....";
     [self updateProgress:5];
     if ([self checkFields] == NO) {
         return;
@@ -187,6 +199,7 @@
 
 #pragma mark - tweak not tweaked app
 - (void)startTweakProcess {
+    self.loadingLabel.stringValue = @"Preparing....";
     [self updateProgress:8];
     if (isDylib) {
         if (!isDylibsDir) {
@@ -341,6 +354,7 @@
 }
 
 - (void)loadOnlyOneTweak {
+    self.loadingLabel.stringValue = @"Loading Dylibs....";
     NSString *appBinary = [[self extractedAppBundlePath] stringByAppendingPathComponent:[self appInfoPlistDictionary][@"CFBundleExecutable"]];
     NSString *dylibPath = _additionalField.stringValue;
     NSString *dylibName = dylibPath.lastPathComponent;
@@ -360,6 +374,7 @@
 }
 
 - (void)loadSpecificTweakFile {
+    self.loadingLabel.stringValue = @"Loading Dylibs....";
     NSString *appBinary = [[self extractedAppBundlePath] stringByAppendingPathComponent:[self appInfoPlistDictionary][@"CFBundleExecutable"]];
     NSError *error = nil;
     NSArray *tweaksFiles = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:_additionalField.stringValue error:&error];
@@ -417,6 +432,7 @@
 
 #pragma mark - resign not tweaked app
 - (void)startJustResignProcess {
+    self.loadingLabel.stringValue = @"Preparing....";
     [self updateProgress:8];
     if (!isTweak) {
         if (isSupportIPAD) {
@@ -430,7 +446,22 @@
 
 #pragma mark - General methods
 
+- (void)configureAppInfoFieldsFromProfile {
+    
+    NSDictionary *profileInfo = [IMSProfilesManager getMobileProvisionbyPath:_appProfileField.stringValue];
+    NSDictionary *entitlementsDict = profileInfo[@"Entitlements"];
+    
+    NSString *appIDString = [entitlementsDict objectForKey:@"application-identifier"];
+    NSString *teamID = [entitlementsDict objectForKey:@"com.apple.developer.team-identifier"];
+    
+    NSArray *appIDArray = [appIDString componentsSeparatedByString:[NSString stringWithFormat:@"%@.", teamID]];
+    _appNameField.stringValue = [profileInfo objectForKey:@"AppIDName"];
+    _appIDField.stringValue = [appIDArray objectAtIndex:1];
+    
+}
+
 - (void)startEntitlementsProcess {
+    self.loadingLabel.stringValue = @"Saving Entitlements....";
     [self updateProgress:43];
     [self excuteCommandWithLaunchPath:@"/usr/bin/security" andArguments:@[@"cms",@"-D",@"-i", _appProfileField.stringValue, @"-o", [self entitlementsTempPlist]] andCompleteBlock:^(BOOL exited) {
         if (exited) {
@@ -449,6 +480,7 @@
 }
 
 - (void)startSignAllDylibProcess {
+    self.loadingLabel.stringValue = @"Sign All Dylibs....";
     [self updateProgress:50];
     [self checkIfTheAppAlreadyTweakedWithBlock:^(BOOL isTweaked, NSArray *allDylibs) {
         if (isTweaked && allDylibs.count > 0) {
@@ -484,6 +516,7 @@
 }
 
 - (void)signAllAppPlugins {
+    self.loadingLabel.stringValue = @"Remove All Plugins....";
     if ([[NSFileManager defaultManager] fileExistsAtPath:[self appPluginPath]]) {
         [self updateProgress:57];
         // remove it for now
@@ -507,6 +540,7 @@
 }
 
 - (void)signAllAppFrameworks {
+    self.loadingLabel.stringValue = @"Sign All Frameworks....";
     if ([[NSFileManager defaultManager] fileExistsAtPath:[self appFrameworksPath]]) {
         NSError *error = nil;
         NSArray *frameworksContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[self appFrameworksPath] error:&error];
@@ -521,7 +555,7 @@
                     [self signTheMainAppNow];
                 });
             }
-            NSString *frameworkFullPath = [[self extractedAppBundlePath] stringByAppendingPathComponent:[frameworksContents objectAtIndex:index]];
+            NSString *frameworkFullPath = [[self appFrameworksPath] stringByAppendingPathComponent:[frameworksContents objectAtIndex:index]];
             [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, frameworkFullPath] andCompleteBlock:^(BOOL exited) {
                 
             }];
@@ -546,10 +580,10 @@
     NSString *appBinary = [[self extractedAppBundlePath] stringByAppendingPathComponent:[self appInfoPlistDictionary][@"CFBundleExecutable"]];
     [self excuteCommandWithLaunchPath:@"/bin/cp" andArguments:@[[NSString stringWithFormat:@"%@", _appProfileField.stringValue], [NSString stringWithFormat:@"%@/embedded.mobileprovision", [self extractedAppBundlePath]]] andCompleteBlock:^(BOOL exited) {
         if (exited) {
-            [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, @"--entitlements", [self appEntitlementsFile], @"--timestamp=none", [self extractedAppBundlePath]] andCompleteBlock:^(BOOL exited) {
+            [self excuteCommandWithLaunchPath:@"/usr/bin/codesign" andArguments:@[@"-fs", certificateName, @"--entitlements", [self appEntitlementsFile], @"--timestamp=none", appBinary] andCompleteBlock:^(BOOL exited) {
                 if (exited) {
                     // create ipa
-                    [self updateProgress:97];
+                    [self updateProgress:70];
                     [self makeIPAFile];
                 }
             }];
@@ -558,28 +592,28 @@
 }
 
 - (void)makeIPAFile{
-    
-    [self updateProgress:100];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        [DJProgressHUD showStatus:@"Saving to Desktop ( wait please )" FromView:[[NSApplication sharedApplication] keyWindow].contentView];
-        
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    self.loadingLabel.stringValue = @"Sign Main Bundle....";
+    [self updateProgress:80];
+    double delayInSeconds = 1.5;
+    dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
+    dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+        // exited
+        [self updateProgress:100];
+        self.loadingLabel.stringValue = @"Zip Main Bundle....";
+        NSString *command = [NSString stringWithFormat:@"cd %@; zip -r %@ -r Payload/", [self extractedPath], [NSString stringWithFormat:@"~/Desktop/%@.ipa",[self appInfoPlistDictionary][@"CFBundleDisplayName"]]];
+        system([command UTF8String]);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            self.loadingLabel.stringValue = @"Cleaning Files....";
             [DJProgressHUD dismiss];
             [self cleanAppMainPath];
             [self excuteCommandWithLaunchPath:@"/bin/cp" andArguments:@[[self insertDylibPathInBundle], [self insertDylibPath]] andCompleteBlock:^(BOOL exited) {
                 if (exited) {
                     // copied well
+                    self.loadingLabel.stringValue = @"Done Saved....";
                 }
             }];
         });
-    });
-    
-    double delayInSeconds = 1.5;
-    dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delayInSeconds * NSEC_PER_SEC);
-    dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
-        // exited
-        NSString *command = [NSString stringWithFormat:@"cd %@; zip -r %@ -r Payload/", [self extractedPath], [NSString stringWithFormat:@"~/Desktop/%@.ipa",[self appInfoPlistDictionary][@"CFBundleDisplayName"]]];
-        system([command UTF8String]);
+        
     });
 }
 
@@ -589,17 +623,35 @@
 #pragma mark - NSTableViewDelegate/DataSource
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    return certsArray.count;
+    if (tableView == _mainTableView) {
+        return certsArray.count;
+    }
+    return profilesArray.count;
 }
 
 - (nullable id)tableView:(NSTableView *)tableView objectValueForTableColumn:(nullable NSTableColumn *)tableColumn row:(NSInteger)row {
-    return certsArray[row];
+    if (tableView == _mainTableView) {
+        return certsArray[row];
+    }
+    NSString *profilePath = profilesArray[row];
+    NSDictionary *profile = [IMSProfilesManager getMobileProvisionbyPath:profilePath];
+    return profile[@"Name"];
+    
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
     NSTableView *table = [notification object];
-    certificateName = [certsArray objectAtIndex:[table selectedRow]];
-    NSLog(@"******* %@", certificateName);
+    if (table == _mainTableView) {
+        certificateName = [certsArray objectAtIndex:[table selectedRow]];
+        NSLog(@"******* %@", certificateName);
+    } else {
+        NSString *profilePath = [profilesArray objectAtIndex:[table selectedRow]];
+        appProfile = profilePath;
+        _appProfileField.stringValue = profilePath;
+//        NSLog(@"********* %@", [IMSProfilesManager getMobileProvisionbyPath:profilePath]);
+        [self configureAppInfoFieldsFromProfile];
+    }
+    
 }
 
 
@@ -690,6 +742,20 @@
     return tempGetCertsResult;
 }
 
+- (NSArray *)getProfiles {
+    NSMutableArray *profilesArray = [NSMutableArray new];
+    NSURL *libraryDirectory = [[[NSFileManager defaultManager] URLsForDirectory:NSLibraryDirectory inDomains:NSUserDomainMask] firstObject];
+    NSString *libraryPath = libraryDirectory.path;
+    NSString *provisioningProfilesPath = [libraryPath stringByAppendingPathComponent:@"MobileDevice/Provisioning Profiles"];
+    NSArray *provisioningProfiles = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:provisioningProfilesPath error:nil];
+    for (NSString *profileFile in provisioningProfiles) {
+        if ([profileFile.pathExtension isEqualToString:@"mobileprovision"]) {
+            NSString *profilePathFull = [provisioningProfilesPath stringByAppendingPathComponent:profileFile];
+            [profilesArray addObject:profilePathFull];
+        }
+    }
+    return [profilesArray copy];
+}
 - (void)ensurePathAt:(NSString *)path
 {
     NSError *error;

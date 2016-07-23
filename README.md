@@ -51,7 +51,7 @@ Tweaking App
 ### TODO
 
 - [ ] Tweaking already tweaked app
-- [ ] Improving provision profile grabber ( list profiles from Mac itself )
+- [x] Improving provision profile grabber ( list profiles from Mac itself )
 - [ ] Duplicating apps if using wildcard profile
 - [ ] Adding section for plusplus tweak ( to tweak app using it easily without using extern sources )
 - [ ] Add changing app current icon
